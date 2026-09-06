@@ -1,0 +1,49 @@
+# 读取图像的设备，有 HIK 、 UVC 、 IMG 三种模式（海康相机，UVC协议的USB相机，图片）
+device: HIK
+# 相机标定参数 0:默认 0x00080: fix K3
+calibrateCamera_flags: 0x00080
+# 标定板类型 棋盘格： chessboard 对称圆： circles 非对称圆： acircles
+pattern: chessboard
+pattern_rows: 11 # 标定板行数（内角点数）
+pattern_cols: 8 # 标定板列数（内角点数）
+square_size: 30  # 标定板方格边长，单位：毫米
+HIK:
+  enable_frame_rate: false  # 是否锁帧
+  frame_rate: 200           # 锁帧时的帧率
+  exposure_time: 50000       # 曝光时间，单位：微秒
+  gain: 0.0                # 增益，识别标定版为 0,不然会增加噪点
+  adc_bit_depth: ADCBitDepth_8  # ADC位深，8或10
+  pixel_format: BayerRG8
+UVC:
+  video_path: /dev/video0   # USB相机设备路径
+  image_width: 1280
+  image_height: 720
+  frame_rate: 30            # 帧率
+  exposure_time: 100        # 曝光时间
+  gain: 16                  # 增益 
+IMG:
+  images_path: /home/qidian/images # 图像路径
+
+# 手眼标定和重投影误差用到的相机参数
+camera_matrix: [2374.800283232456, 0, 735.06179430972065, 0, 2375.6076189500459, 574.06058339146648, 0, 0, 1]
+distort_coeffs: [-0.03677891526705588, 0.1492051837742159, 0.001561300839571889, 0.001470933366848674, 0]
+
+
+# 串口参数
+Serial:
+  port_name: /dev/rm_usb0
+  baud_rate: 115200
+
+# 标定数据保存路径
+camera_calib_save_path: ./camera_calib_images  # 相机标定图片保存路径
+handeye_calib_save_path: ./handeye_calib_data   # 手眼标定数据保存路径（包含图片和姿态信息）
+
+# 自动采集配置（直接移植自 ROS image_pipeline/camera_calibration）
+# 按 'a' 键在运行时切换，或在此直接设为 true 启动即启用
+auto_collect_enabled: true               # 是否默认启用自动采集
+auto_collect_interval_ms: 50             # 两次自动采集的最小间隔（毫秒，本工程额外限频项）
+auto_collect_param_distance: 0.2         # 与历史样本的最小 L1 距离（ROS 默认 0.2）
+auto_collect_param_ranges: [0.7, 0.7, 0.4, 0.5]  # X/Y/Size/Skew 的覆盖目标范围（ROS 默认）
+auto_collect_goodenough_samples: 40      # 即便部分维度未覆盖，达到该样本数也视为可标定（ROS 默认 40）
+auto_collect_max_chessboard_speed: -1.0  # 角点平均位移阈值（像素/帧），<=0 关闭静止性检查
+auto_collect_sharpness_threshold: 40.0   # 拉普拉斯方差阈值，<=0 关闭清晰度过滤（对 ROS 的可选增强）
