@@ -210,3 +210,8 @@ Serial:
 - 按键无效：先点击网页让页面获得焦点
 - 一直提示图像为空：检查 `device` 配置及设备路径/图片路径
 - 手眼标定效果差：确保采集姿态丰富，且采集时标定板在世界坐标系中保持固定
+
+---
+
+## 11. 致谢
+本项目基于 仲恺农业学院开源标定程序 [OpenCV Calibration — 相机与手眼标定工具集](https://gitee.com/slime0rimiru0/open-cv_-calibration) 修改而来
