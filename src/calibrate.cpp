@@ -661,7 +661,7 @@ void Calibrate::print_yaml(
 
     // 写入 xyz
     out << YAML::Key << "xyz";
-    out << YAML::Value << "\"" + ss_xyz.str() + "\"";
+    out << YAML::Value << ss_xyz.str();
 
     // 写入带注释的 rpy
     out << YAML::Newline;
@@ -672,7 +672,7 @@ void Calibrate::print_yaml(
         rpy[0]
     ));
     out << YAML::Key << "rpy";
-    out << YAML::Value << "\"" + ss_rpy.str() + "\"";
+    out << YAML::Value << ss_rpy.str();
 
     out << YAML::EndMap;
 

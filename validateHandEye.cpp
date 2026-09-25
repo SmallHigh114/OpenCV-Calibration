@@ -2,10 +2,10 @@
 #include "device.hpp"
 #include "device_factory.hpp"
 #include "serial_driver.hpp"
+#include "web_viewer.hpp"
 #include <memory>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/highgui.hpp>
-#include "web_viewer.hpp"
 
 using namespace std;
 using namespace cv;
@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
     // 手眼标定串口（用于获取云台姿态进行对比）
     std::unique_ptr<Serial_driver> protocol_ = std::make_unique<Serial_driver>(config_path);
 
-        qd::WebViewer viewer(8080);
+    qd::WebViewer viewer(8080);
     viewer.namedWindow("手眼标定验证");
 
     std::chrono::steady_clock::time_point timestamp;
@@ -59,11 +59,22 @@ int main(int argc, char* argv[]) {
     std::cout << "说明：固定标定板，旋转云台，观察标定板在世界坐标系下的位置是否一致" << std::endl;
     std::cout << "按 'r' 键重置统计，按 'ESC' 键退出" << std::endl;
 
+    bool first_img = true;
+    bool first_q = true;
+
     while (true) {
         // 获取图像和串口数据
         Mat img;
-        device->read(img, timestamp);
-        q = protocol_->read(timestamp);
+        device->read(img, timestamp); // 若程序卡死在这里：相机没有出图
+        if (first_img) {
+            std::cout << "首帧图像已获取" << std::endl;
+            first_img = false;
+        }
+        q = protocol_->read(timestamp); // 若程序卡死在这里：云台串口没有有效数据
+        if (first_q) {
+            std::cout << "首个云台姿态已获取" << std::endl;
+            first_q = false;
+        }
 
         // 检查图像
         if (img.empty()) {
