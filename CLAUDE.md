@@ -32,7 +32,7 @@ Each executable is a thin `main` (`calibrateCamera.cpp`, `calibrateHandEye.cpp`,
 
 **Auto-collection (`include/auto_collector.hpp` / `src/auto_collector.cpp`)** is a direct port of ROS `image_pipeline/camera_calibration`'s `calibrator.py` (BSD-3, attribution preserved in headers). It deduplicates samples in a 4-D normalized parameter space (X/Y/Size/Skew), tracks per-axis coverage progress, and draws the ROS-style progress bars on the live image. The thresholds (`auto_collect_param_distance`, `auto_collect_param_ranges`, `auto_collect_goodenough_samples`, `auto_collect_max_chessboard_speed`) match ROS defaults; `auto_collect_sharpness_threshold` is a project-specific Laplacian-variance gate that is **not** in the ROS original. Toggle at runtime with `a`.
 
-**Serial / IMU.** `Serial_driver` (`include/serial_driver.hpp`) reads quaternion data from a UART (`UartTransporter`) on a daemon thread and serves time-aligned poses via linear interpolation against the camera frame timestamp. Used by `calibrateHandEye` and `validateHandEye`; not used by camera-only flows. Default port `/dev/rm_usb0` (configurable under `Serial:` in YAML).
+**Serial / IMU.** `Serial_driver` (`include/serial_driver.hpp`) reads quaternion data from a UART (`UartTransporter`) on a daemon thread and serves time-aligned poses via linear interpolation against the camera frame timestamp. Used by `calibrateHandEye` and `validateHandEye`; not used by camera-only flows. Default port `/dev/robomaster` (configurable under `Serial:` in YAML).
 
 ## Configuration
 

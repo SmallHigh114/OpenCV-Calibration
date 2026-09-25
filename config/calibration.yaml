@@ -31,7 +31,7 @@ distort_coeffs: [-0.03677891526705588, 0.1492051837742159, 0.001561300839571889,
 
 # 串口参数
 Serial:
-  port_name: /dev/rm_usb0
+  port_name: /dev/robomaster
   baud_rate: 115200
 
 # 标定数据保存路径

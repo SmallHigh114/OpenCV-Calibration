@@ -85,7 +85,7 @@ handeye_calib_save_path: ./handeye_calib_data
 
 ```yaml
 Serial:
-	port_name: /dev/rm_usb0
+	port_name: /dev/robomaster
 	baud_rate: 115200
 ```
 
