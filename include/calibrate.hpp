@@ -141,13 +141,24 @@ public:
     */
     void reset_validation_stats(); // 重置验证统计信息
 
-
     /**
     * @brief 从文件夹加载手眼标定数据
     * @param folder_path 数据文件夹路径
     * @return 是否成功加载
     */
     bool load_handeye_data_from_folder(const std::string& folder_path); // 从文件夹加载手眼标定数据
+
+    /**
+     * @brief 将云台模块发来的四元数（IMU 系）换算为云台→世界旋转矩阵
+     *
+     * 与 sp_vision_25 的 Solver::set_R_gimbal2world 约定一致：
+     *   R_gimbal2world = R_gimbal2imubodyᵀ · R_imubody2imuabs · R_gimbal2imubody
+     * IMU 安装系与云台系重合时 R_gimbal2imubody 为单位阵，此换算退化为直接取 q。
+     *
+     * @param q 云台模块四元数（wxyz，IMU 体→IMU 绝对系）
+     * @return 云台→世界旋转矩阵
+     */
+    Eigen::Matrix3d gimbal2world(const Eigen::Quaterniond& q) const;
 
     /**
      * @brief 切换自动采集模式（直接移植自 ROS camera_calibration）
@@ -186,9 +197,7 @@ private:
      * @param corners    检测到的角点
      * @return 拉普拉斯方差，值越大越清晰
      */
-    double compute_sharpness(
-        const cv::Mat& img, const std::vector<cv::Point2f>& corners
-    ) const;
+    double compute_sharpness(const cv::Mat& img, const std::vector<cv::Point2f>& corners) const;
 
     /**
     @brief 输入 2D 标定角点获得标定板坐标系点位
@@ -197,7 +206,7 @@ private:
 
     /**
     @brief 查找 2D 标定角点
-    */  
+    */
     bool find_Chessboard(const cv::Mat& img, std::vector<cv::Point2f>& pixel_points);
 
     /**
@@ -305,6 +314,8 @@ private:
     cv::Matx33d camera_matrix;
     cv::Mat distort_coeffs;
     int calibrateCamera_flags_ = cv::CALIB_FIX_K3;
+    // IMU 安装系到云台系的固定旋转（行主序，配置项 R_gimbal2imubody）
+    Eigen::Matrix3d R_gimbal2imubody_ { Eigen::Matrix3d::Identity() };
 
     std::vector<cv::Mat> rvecs, tvecs;
     // 手眼标定用数据（calibrateRobotWorldHandEye 需要 world2gimbal）
@@ -433,7 +444,8 @@ eulers(Eigen::Quaterniond q, int axis0, int axis1, int axis2, bool extrinsic = f
  * @param extrinsic 是否为外旋
  * @return Eigen::Vector3d 欧拉角（弧度）
  */
-static Eigen::Vector3d eulers(Eigen::Matrix3d R, int axis0, int axis1, int axis2, bool extrinsic) {
+static Eigen::Vector3d
+eulers(Eigen::Matrix3d R, int axis0, int axis1, int axis2, bool extrinsic = false) {
     Eigen::Quaterniond q(R);
     return eulers(q, axis0, axis1, axis2, extrinsic);
 }

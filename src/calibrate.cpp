@@ -13,50 +13,70 @@ namespace qd::calibrate {
 
 namespace {
 
-void draw_board_orientation(
-    cv::Mat& img, const std::vector<cv::Point2f>& pixel_points, const cv::Size& board_size
-) {
-    if (pixel_points.size() < 2) {
-        return;
+    void draw_board_orientation(
+        cv::Mat& img,
+        const std::vector<cv::Point2f>& pixel_points,
+        const cv::Size& board_size
+    ) {
+        if (pixel_points.size() < 2) {
+            return;
+        }
+
+        const int board_point_count = board_size.width * board_size.height;
+        if (board_size.width < 2 || board_size.height < 2
+            || static_cast<int>(pixel_points.size()) < board_point_count)
+        {
+            return;
+        }
+
+        const cv::Point origin = pixel_points.front();
+        const cv::Point x_axis = pixel_points[1];
+        const cv::Point y_axis = pixel_points[board_size.width];
+        const cv::Point opposite = pixel_points[board_point_count - 1];
+
+        cv::circle(img, origin, 8, cv::Scalar(255, 255, 255), -1);
+        cv::circle(img, origin, 8, cv::Scalar(0, 0, 255), 2);
+        cv::arrowedLine(img, origin, x_axis, cv::Scalar(0, 0, 255), 3, cv::LINE_AA, 0, 0.2);
+        cv::arrowedLine(img, origin, y_axis, cv::Scalar(0, 255, 0), 3, cv::LINE_AA, 0, 0.2);
+        cv::circle(img, opposite, 6, cv::Scalar(255, 255, 0), 2);
+
+        cv::putText(
+            img,
+            "O",
+            origin + cv::Point(10, -10),
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.8,
+            cv::Scalar(0, 0, 255),
+            2
+        );
+        cv::putText(
+            img,
+            "X+",
+            x_axis + cv::Point(10, -10),
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.7,
+            cv::Scalar(0, 0, 255),
+            2
+        );
+        cv::putText(
+            img,
+            "Y+",
+            y_axis + cv::Point(10, -10),
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.7,
+            cv::Scalar(0, 255, 0),
+            2
+        );
+        cv::putText(
+            img,
+            "Board Dir",
+            origin + cv::Point(10, 25),
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.7,
+            cv::Scalar(255, 255, 0),
+            2
+        );
     }
-
-    const int board_point_count = board_size.width * board_size.height;
-    if (board_size.width < 2 || board_size.height < 2
-        || static_cast<int>(pixel_points.size()) < board_point_count)
-    {
-        return;
-    }
-
-    const cv::Point origin = pixel_points.front();
-    const cv::Point x_axis = pixel_points[1];
-    const cv::Point y_axis = pixel_points[board_size.width];
-    const cv::Point opposite = pixel_points[board_point_count - 1];
-
-    cv::circle(img, origin, 8, cv::Scalar(255, 255, 255), -1);
-    cv::circle(img, origin, 8, cv::Scalar(0, 0, 255), 2);
-    cv::arrowedLine(img, origin, x_axis, cv::Scalar(0, 0, 255), 3, cv::LINE_AA, 0, 0.2);
-    cv::arrowedLine(img, origin, y_axis, cv::Scalar(0, 255, 0), 3, cv::LINE_AA, 0, 0.2);
-    cv::circle(img, opposite, 6, cv::Scalar(255, 255, 0), 2);
-
-    cv::putText(
-        img, "O", origin + cv::Point(10, -10), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 0, 255), 2
-    );
-    cv::putText(
-        img, "X+", x_axis + cv::Point(10, -10), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 255), 2
-    );
-    cv::putText(
-        img, "Y+", y_axis + cv::Point(10, -10), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2
-    );
-    cv::putText(
-        img,
-        "Board Dir",
-        origin + cv::Point(10, 25),
-        cv::FONT_HERSHEY_SIMPLEX,
-        0.7,
-        cv::Scalar(255, 255, 0),
-        2
-    );
-}
 
 } // namespace
 
@@ -69,6 +89,18 @@ Calibrate::Calibrate(const std::string& config_path): paramer(config_path) {
     this->distort_coeffs = cv::Mat(distort_coeffs_data).clone();
     cout << "Loaded camera matrix: \n" << this->camera_matrix << endl;
     cout << "Loaded distort coeffs: \n" << this->distort_coeffs << endl;
+
+    // IMU 安装系到云台系的固定旋转（行主序，与 sp_vision_25 的 R_gimbal2imubody 一致）
+    if (yaml["R_gimbal2imubody"]) {
+        auto R_gimbal2imubody_data = yaml["R_gimbal2imubody"].as<std::vector<double>>();
+        if (R_gimbal2imubody_data.size() == 9) {
+            R_gimbal2imubody_ =
+                Eigen::Matrix<double, 3, 3, Eigen::RowMajor>(R_gimbal2imubody_data.data());
+        } else {
+            std::cerr << "R_gimbal2imubody 需要 9 个元素，使用单位阵" << std::endl;
+        }
+    }
+    cout << "Loaded R_gimbal2imubody: \n" << R_gimbal2imubody_ << endl;
 
     calibrateCamera_flags_ = yaml["calibrateCamera_flags"].as<int>();
 
@@ -92,8 +124,7 @@ Calibrate::Calibrate(const std::string& config_path): paramer(config_path) {
     // ---- 自动采集配置（直接移植 ROS image_pipeline/camera_calibration）----
     AutoCollector::Config ac_cfg;
     if (yaml["auto_collect_param_distance"]) {
-        ac_cfg.param_distance_threshold =
-            yaml["auto_collect_param_distance"].as<double>();
+        ac_cfg.param_distance_threshold = yaml["auto_collect_param_distance"].as<double>();
     }
     if (yaml["auto_collect_param_ranges"]) {
         const auto ranges = yaml["auto_collect_param_ranges"].as<std::vector<double>>();
@@ -102,25 +133,24 @@ Calibrate::Calibrate(const std::string& config_path): paramer(config_path) {
         }
     }
     if (yaml["auto_collect_goodenough_samples"]) {
-        ac_cfg.goodenough_samples =
-            yaml["auto_collect_goodenough_samples"].as<std::size_t>();
+        ac_cfg.goodenough_samples = yaml["auto_collect_goodenough_samples"].as<std::size_t>();
     }
     if (yaml["auto_collect_max_chessboard_speed"]) {
-        ac_cfg.max_chessboard_speed =
-            yaml["auto_collect_max_chessboard_speed"].as<double>();
+        ac_cfg.max_chessboard_speed = yaml["auto_collect_max_chessboard_speed"].as<double>();
     }
     if (yaml["auto_collect_interval_ms"]) {
         ac_cfg.min_interval_ms = yaml["auto_collect_interval_ms"].as<int>();
     }
     auto_collector_ = std::make_unique<AutoCollector>(paramer.boardSize, ac_cfg);
 
-    const bool auto_enabled = yaml["auto_collect_enabled"]
-        ? yaml["auto_collect_enabled"].as<bool>() : false;
+    const bool auto_enabled =
+        yaml["auto_collect_enabled"] ? yaml["auto_collect_enabled"].as<bool>() : false;
     auto_collector_->set_enabled(auto_enabled);
 
     // 清晰度阈值是对 ROS 算法的可选增强，默认开启
     auto_collect_sharpness_threshold_ = yaml["auto_collect_sharpness_threshold"]
-        ? yaml["auto_collect_sharpness_threshold"].as<double>() : 0.0;
+        ? yaml["auto_collect_sharpness_threshold"].as<double>()
+        : 0.0;
 }
 
 bool Calibrate::collect_camera(Mat& img, bool enable_collect) {
@@ -141,8 +171,7 @@ bool Calibrate::collect_camera(Mat& img, bool enable_collect) {
 
     if (found) {
         object_points = calcChessboardCorners(pixel_points);
-        object_points[paramer.boardSize.width - 1].x =
-            object_points[0].x + paramer.grid_width;
+        object_points[paramer.boardSize.width - 1].x = object_points[0].x + paramer.grid_width;
 
         params_ok = auto_collector_
             ? auto_collector_->compute_params(pixel_points, img_size, params)
@@ -164,19 +193,23 @@ bool Calibrate::collect_camera(Mat& img, bool enable_collect) {
         // 手动按 's' 时也拦截模糊帧
         if (enable_collect && !sharp_enough) {
             enable_collect = false;
-            std::cout << "[警告] 图像过于模糊 (sharpness=" << std::fixed
-                      << std::setprecision(1) << sharpness_value << " < "
-                      << auto_collect_sharpness_threshold_
+            std::cout << "[警告] 图像过于模糊 (sharpness=" << std::fixed << std::setprecision(1)
+                      << sharpness_value << " < " << auto_collect_sharpness_threshold_
                       << ")，跳过采集（高曝光拖影？）" << std::endl;
         }
 
         // 在画面上显示清晰度
         if (auto_collect_sharpness_threshold_ > 0.0) {
-            const cv::Scalar sharp_color = sharp_enough ? cv::Scalar(0, 255, 0)
-                                                        : cv::Scalar(0, 60, 255);
+            const cv::Scalar sharp_color =
+                sharp_enough ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 60, 255);
             cv::putText(
-                img, fmt::format("Sharp: {:.0f}", sharpness_value), { 10, 65 },
-                cv::FONT_HERSHEY_SIMPLEX, 0.8, sharp_color, 2
+                img,
+                fmt::format("Sharp: {:.0f}", sharpness_value),
+                { 10, 65 },
+                cv::FONT_HERSHEY_SIMPLEX,
+                0.8,
+                sharp_color,
+                2
             );
         }
 
@@ -204,9 +237,7 @@ bool Calibrate::collect_camera(Mat& img, bool enable_collect) {
     if (auto_enabled) {
         text += "  [AUTO]";
     }
-    cv::putText(
-        img, text, { 10, 30 }, cv::FONT_HERSHEY_SIMPLEX, 1, { 0, 255, 0 }, 2
-    );
+    cv::putText(img, text, { 10, 30 }, cv::FONT_HERSHEY_SIMPLEX, 1, { 0, 255, 0 }, 2);
 
     return true;
 }
@@ -436,6 +467,11 @@ void Calibrate::saveCalibrationYAML(
     std::cout << "标定结果已保存到 " << filename << std::endl;
 }
 
+Eigen::Matrix3d Calibrate::gimbal2world(const Eigen::Quaterniond& q) const {
+    // 与 sp_vision_25 的 Solver::set_R_gimbal2world 约定一致
+    return R_gimbal2imubody_.transpose() * q.toRotationMatrix() * R_gimbal2imubody_;
+}
+
 void Calibrate::collect_handeye(Mat& img, const Eigen::Quaterniond& q, IN bool enable_collect) {
     // 获得标定点
     std::vector<Point2f> pixel_points;
@@ -465,7 +501,8 @@ void Calibrate::collect_handeye(Mat& img, const Eigen::Quaterniond& q, IN bool e
         this->tvecs.push_back(tvec);
 
         // calibrateRobotWorldHandEye 需要 R_world2gimbal（R_gimbal2world 的转置）
-        Eigen::Matrix3d R_gimbal2world = q.toRotationMatrix();
+        // 先经 R_gimbal2imubody 换算到云台系（IMU 安装系与云台系不重合时，这里修正固定偏角）
+        Eigen::Matrix3d R_gimbal2world = gimbal2world(q);
         Eigen::Matrix3d R_world2gimbal = R_gimbal2world.transpose();
         cv::Mat t_world2gimbal = (cv::Mat_<double>(3, 1) << 0, 0, 0);
         cv::Mat R_world2gimbal_cv;
@@ -473,16 +510,17 @@ void Calibrate::collect_handeye(Mat& img, const Eigen::Quaterniond& q, IN bool e
 
         this->R_world2gimbal_list.emplace_back(R_world2gimbal_cv);
         this->t_world2gimbal_list.emplace_back(t_world2gimbal);
-        this->handeye_ypr_deg_list_.emplace_back(eulers(q, 2, 1, 0) * 180 / M_PI);
+        this->handeye_ypr_deg_list_.emplace_back(eulers(R_gimbal2world, 2, 1, 0) * 180 / M_PI);
 
         // 计数
         this->collected_count++;
 
-        // 保存图片和姿态信息
-        save_handeye_data(img, q, this->collected_count);
+        // 保存图片和姿态信息（存修正后的四元数，离线重算时无需再修正）
+        save_handeye_data(img, Eigen::Quaterniond(R_gimbal2world), this->collected_count);
 
         // debug
-        std::cout << "gimbal ypr: " << eulers(q, 2, 1, 0).transpose() * 180 / M_PI << std::endl;
+        std::cout << "gimbal ypr: " << eulers(R_gimbal2world, 2, 1, 0).transpose() * 180 / M_PI
+                  << std::endl;
         std::cout << "camera tvec: " << tvec.t() << std::endl;
         Eigen::Vector3d tvec_vec(tvec.at<double>(0), tvec.at<double>(1), tvec.at<double>(2));
         std::cout << "norm: " << tvec_vec.norm() << std::endl;
@@ -500,9 +538,9 @@ void Calibrate::collect_handeye(Mat& img, const Eigen::Quaterniond& q, IN bool e
 }
 
 bool Calibrate::display_rpy(cv::Mat& img, const Eigen::Quaterniond& q) {
-    // 可视化
+    // 可视化（先换算到云台系，保证显示角度与云台机械角度一致）
     // Eigen::Vector3d rpy = q.toRotationMatrix().eulerAngles(0, 1, 2)* 180 / M_PI;
-    Eigen::Vector3d ypr = eulers(q, 2, 1, 0) * 180 / M_PI;
+    Eigen::Vector3d ypr = eulers(gimbal2world(q), 2, 1, 0) * 180 / M_PI;
     // std::cout << " 解包q: "<< rpy << std::endl;
     // yaw
     {
@@ -548,8 +586,45 @@ void Calibrate::calibrate_handeye() {
     tm.stop();
     std::cout << "calibrateRobotWorldHandEye Latency:" << tm.getTimeSec() << " s" << std::endl;
 
+    // 残差诊断：逐样本检查 R_world2gimbal_i·R_gimbal2camera·R_camera2board_i 是否一致于
+    // R_world2board。残差小 → 解与数据自洽（偏角大 = 输入姿态带固定偏移，查 R_gimbal2imubody）；
+    // 残差大 → 求解收敛到坏解（数据欠约束/离群点，建议加大 pitch/roll 摆动范围重新采集）。
+    {
+        double rot_err_sum = 0, rot_err_max = 0;
+        double t_err_sum = 0, t_err_max = 0;
+        for (size_t i = 0; i < R_world2gimbal_list.size(); ++i) {
+            cv::Mat R_camera2board;
+            cv::Rodrigues(rvecs[i], R_camera2board);
+            cv::Mat R_wb_i = R_world2gimbal_list[i] * R_gimbal2camera * R_camera2board;
+            cv::Mat R_diff = R_wb_i.t() * R_world2board; // 应接近单位阵
+            double cos_angle = (cv::trace(R_diff)[0] - 1.0) / 2.0;
+            if (cos_angle > 1.0)
+                cos_angle = 1.0;
+            if (cos_angle < -1.0)
+                cos_angle = -1.0;
+            double rot_err = std::acos(cos_angle) * 180.0 / M_PI;
+            rot_err_sum += rot_err;
+            rot_err_max = std::max(rot_err_max, rot_err);
+
+            cv::Mat t_wb_i =
+                R_world2gimbal_list[i] * (R_gimbal2camera * tvecs[i] + t_gimbal2camera);
+            double t_err = cv::norm(t_wb_i - t_world2board);
+            t_err_sum += t_err;
+            t_err_max = std::max(t_err_max, t_err);
+        }
+        auto n = static_cast<double>(R_world2gimbal_list.size());
+        fmt::print(
+            "手眼求解残差: 旋转 mean={:.3f} deg, max={:.3f} deg | 平移 mean={:.1f} mm, "
+            "max={:.1f} mm\n",
+            rot_err_sum / n,
+            rot_err_max,
+            t_err_sum / n,
+            t_err_max
+        );
+    }
+
     t_gimbal2camera /= 1e3; // mm to m
-    t_world2board /= 1e3;   // mm to m
+    t_world2board /= 1e3; // mm to m
 
     // 反转得到 camera2gimbal 和 board2world
     cv::Mat R_camera2gimbal, t_camera2gimbal;
@@ -564,8 +639,7 @@ void Calibrate::calibrate_handeye() {
     cv::cv2eigen(R_camera2gimbal, R_cameraRDU2gimbalFLU_eigen);
     const Eigen::Matrix3d R_flu2rdu { { 0, -1, 0 }, { 0, 0, -1 }, { 1, 0, 0 } };
 
-    Eigen::Matrix3d R_cameraFLU2gimbalFLU =
-        R_cameraRDU2gimbalFLU_eigen * R_flu2rdu;
+    Eigen::Matrix3d R_cameraFLU2gimbalFLU = R_cameraRDU2gimbalFLU_eigen * R_flu2rdu;
     Eigen::Vector3d rpy =
         eulers(Eigen::Quaterniond { R_cameraFLU2gimbalFLU }, 2, 1, 0) * 180 / M_PI; // degree
 
@@ -678,12 +752,14 @@ void Calibrate::print_yaml(
 
     // 标定板位姿信息（辅助验证标定结果合理性）
     out << YAML::Newline;
-    out << YAML::Comment(fmt::format(
-        "标定板到世界坐标系原点的水平距离: {:.2f} m", board_distance));
+    out << YAML::Comment(fmt::format("标定板到世界坐标系原点的水平距离: {:.2f} m", board_distance));
     out << YAML::Newline;
     out << YAML::Comment(fmt::format(
         "标定板同竖直摆放时的偏角(gimbal2camera/FLU): yaw{:.2f} pitch{:.2f} roll{:.2f} degree",
-        board_ypr[0], board_ypr[1], board_ypr[2]));
+        board_ypr[0],
+        board_ypr[1],
+        board_ypr[2]
+    ));
 
     out << YAML::EndMap;
 
@@ -956,8 +1032,8 @@ void Calibrate::validate_handeye(cv::Mat& img, const Eigen::Quaterniond& gimbal_
     cv::Mat t_board2gimbal = R_camera2gimbal * tvec_board2camera + t_camera2gimbal;
 
     // 将标定板位姿从云台坐标系转换到世界坐标系
-    // 云台到世界的旋转矩阵（从串口获取的云台姿态）
-    Eigen::Matrix3d R_gimbal2world = gimbal_quaternion.toRotationMatrix();
+    // 云台到世界的旋转矩阵（从串口获取的云台姿态，先换算到云台系）
+    Eigen::Matrix3d R_gimbal2world = gimbal2world(gimbal_quaternion);
     cv::Mat R_gimbal2world_cv;
     cv::eigen2cv(R_gimbal2world, R_gimbal2world_cv);
 
@@ -1004,7 +1080,7 @@ void Calibrate::validate_handeye(cv::Mat& img, const Eigen::Quaterniond& gimbal_
     Eigen::Vector3d ypr_board2world = eulers(q_board2world, 2, 1, 0) * 180 / M_PI;
 
     // 获取云台的欧拉角（世界坐标系）
-    Eigen::Vector3d ypr_gimbal = eulers(gimbal_quaternion, 2, 1, 0) * 180 / M_PI;
+    Eigen::Vector3d ypr_gimbal = eulers(R_gimbal2world, 2, 1, 0) * 180 / M_PI;
 
     // 计算位置误差（距离）- 标定板到云台的距离
     double position_error = cv::norm(t_board2gimbal);
@@ -1419,8 +1495,7 @@ void Calibrate::set_auto_collect(bool enable) {
         return;
     }
     auto_collector_->set_enabled(enable);
-    std::cout << (enable ? "[AutoCollect] 自动采集已启用"
-                         : "[AutoCollect] 自动采集已关闭")
+    std::cout << (enable ? "[AutoCollect] 自动采集已启用" : "[AutoCollect] 自动采集已关闭")
               << std::endl;
 }
 
@@ -1428,20 +1503,17 @@ bool Calibrate::is_auto_collect_enabled() const {
     return auto_collector_ && auto_collector_->enabled();
 }
 
-double Calibrate::compute_sharpness(
-    const cv::Mat& img, const std::vector<cv::Point2f>& corners
-) const {
+double
+Calibrate::compute_sharpness(const cv::Mat& img, const std::vector<cv::Point2f>& corners) const {
     if (img.empty() || corners.empty()) {
         return 0.0;
     }
 
     cv::Rect board_roi = cv::boundingRect(corners);
-    const int pad = static_cast<int>(
-        std::max(board_roi.width, board_roi.height) * 0.05
-    );
-    board_roi.x      = std::max(0, board_roi.x - pad);
-    board_roi.y      = std::max(0, board_roi.y - pad);
-    board_roi.width  = std::min(img.cols - board_roi.x, board_roi.width  + 2 * pad);
+    const int pad = static_cast<int>(std::max(board_roi.width, board_roi.height) * 0.05);
+    board_roi.x = std::max(0, board_roi.x - pad);
+    board_roi.y = std::max(0, board_roi.y - pad);
+    board_roi.width = std::min(img.cols - board_roi.x, board_roi.width + 2 * pad);
     board_roi.height = std::min(img.rows - board_roi.y, board_roi.height + 2 * pad);
     if (board_roi.width <= 0 || board_roi.height <= 0) {
         return 0.0;

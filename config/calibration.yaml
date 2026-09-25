@@ -34,6 +34,10 @@ Serial:
   port_name: /dev/robomaster
   baud_rate: 115200
 
+# IMU 安装系到云台系的固定旋转（行主序 3x3，与 sp_vision_25 的 R_gimbal2imubody 一致）
+# 单位阵 = IMU 系与云台系重合；若云台姿态显示/手眼标定结果出现固定偏角，修改此矩阵
+R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
 # 标定数据保存路径
 camera_calib_save_path: ./camera_calib_images  # 相机标定图片保存路径
 handeye_calib_save_path: ./handeye_calib_data   # 手眼标定数据保存路径（包含图片和姿态信息）
