@@ -656,10 +656,8 @@ void Calibrate::calibrate_handeye() {
         eulers(Eigen::Quaterniond { R_boardFLU2worldFLU }, 2, 1, 0) * 180 / M_PI;
 
     const auto handeye_rpy_range = calculate_handeye_rpy_range();
-    // 输出标定信息
+    // 输出标定信息（rpy 为经 FLU 校正后的安装偏角，保存 YAML 时沿用同一组偏角写入 comment）
     print_yaml(t_camera2gimbal, rpy, board_distance, board_ypr, handeye_rpy_range);
-    rpy = eulers(Eigen::Quaterniond { R_cameraRDU2gimbalFLU_eigen.transpose() }, 2, 1, 0) * 180
-        / M_PI;
 
     // 保存手眼标定结果到文件
     saveHandEyeCalibrationYAML(
